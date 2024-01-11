@@ -32,23 +32,26 @@ def _check_for_data_updates(**kwargs):
 with DAG(
     "self_trigger_dag", schedule_interval="@daily", default_args=default_args, catchup=False
 ) as dag:
-    start = PythonOperator(task_id="Start", python_callable=_start)
+    start = PythonOperator(task_id="start", python_callable=_start)
 
-    regular_wf = PythonOperator(task_id="Regular_WF", python_callable=_regular_wf)
+    regular_wf = PythonOperator(task_id="regular_wf", python_callable=_regular_wf)
 
     get_dates = PythonOperator(
-        task_id="GetUpdateDates", python_callable=_get_update_date_period
+        task_id="get_dates", python_callable=_get_update_date_period
     )
 
-    check_for_data_updates = ShortCircuitOperator(task_id='Check_Data_Updates', python_callable=_check_for_data_updates)
+    check_for_data_updates = ShortCircuitOperator(task_id='check_for_data_updates', python_callable=_check_for_data_updates)
 
-    trigger = TriggerDagRunOperator(
-        task_id='Trigger_Self',
+    trigger_self = TriggerDagRunOperator(
+        task_id='trigger_self',
         trigger_dag_id=dag.dag_id,
-        # trigger_run_id='dataUpdateTrigger__' + {{ ts }},  # TODO Brenda Check if I can give a special name in this case
-        conf={"payload": "{{ task_instance.xcom_pull(task_ids='_check_for_data_updates') }}"},
+        trigger_run_id="{{ dataUpdateTrigger__ts }}",  # TODO Brenda Check if I can give a special name in this case
+        conf={
+            "data_update_start_date": "{{ ti.xcom_pull(task_ids='check_for_data_updates', key='data_update_start_date') }}",
+            "data_update_end_date": "{{ ti.xcom_pull(task_ids='check_for_data_updates', key='data_update_end_date') }}"
+        },
     )
 
-    start >> regular_wf >> get_dates >> check_for_data_updates >> trigger
+    start >> regular_wf >> get_dates >> check_for_data_updates >> trigger_self
 
 
