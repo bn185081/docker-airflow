@@ -22,6 +22,8 @@ def _handle_conf(conf=None):
                   f"data_start_date={data_start_date}, data_end_date={data_end_date}")
         except ValueError:
             raise ValueError("data_start_date and data_end_date must be in format YYYY-MM-DD")
+    elif data_start_date or data_end_date:
+        raise ValueError("Only data_start_date OR data_end_date was provided, you must include both for the DAG to be triggered")
     return data_start_date, data_end_date
 
 def _start(**kwargs):
