@@ -1,4 +1,4 @@
-from airflow import DAG
+from airflow import DAG, XComArg
 from airflow.decorators import dag
 from airflow.operators.python import PythonOperator, ShortCircuitOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
@@ -39,8 +39,8 @@ def _start(**kwargs):
 
 
 
-def _get_update_date_period(**kwargs):
-    print("Getting the period of time when the BQ changed")
+def _run_sl_trigger_wf_step(**kwargs):
+    print("Running SL trigger workflow step.  Get dates from BQ and run condition, save files to GCS")
 
 
 def _regular_wf():
@@ -52,14 +52,29 @@ def _check_for_data_updates(wf_run_id: str, **kwargs):
     print(f'AF context: {kwargs}')
     print(f'wf_run_id: {wf_run_id}')
 
-    dates_dict = {
-        "start_date": "2023-12-01",
-        "end_date": "2023-12-31"
-    }
-    for key, val in dates_dict.items():
-        kwargs['ti'].xcom_push(key=key, value=val)
-
     return True
+
+
+def _get_trigger_dates(wf_run_id: str, **kwargs):
+    print("Get Trigger dates")
+    print(f'wf_run_id: {wf_run_id}')
+
+    dates_list = [
+        {
+            "start_date": "2023-12-01",
+            "end_date": "2023-12-02"
+        },
+        {
+            "start_date": "2023-12-10",
+            "end_date": "2023-12-10"
+        },
+        {
+            "start_date": "2024-02-05",
+            "end_date": "2024-02-06"
+        }
+    ]
+
+    return dates_list
 
 
 @dag(dag_id="self_trigger_dag", schedule_interval=None, default_args=default_args, catchup=False)
@@ -69,28 +84,26 @@ def workflow_dag():
     regular_wf = PythonOperator(task_id="regular_wf", python_callable=_regular_wf)
 
     with TaskGroup("my_task_group", tooltip="Tasks for {{ task_id }}") as my_task_group:
-        get_dates = PythonOperator(
-            task_id="get_dates", python_callable=_get_update_date_period
+        run_SL_trigger_wf_step = PythonOperator(
+            task_id="run_SL_trigger_wf_step", python_callable=_run_sl_trigger_wf_step
         )
 
         check_for_data_updates = ShortCircuitOperator(task_id='check_for_data_updates',
                                                       python_callable=_check_for_data_updates,
                                                       op_kwargs={'wf_run_id': "my_run_id"})
 
-        trigger_self = TriggerDagRunOperator(
+        get_trigger_dates = PythonOperator(
+            task_id="get_trigger_dates", python_callable=_get_trigger_dates, op_kwargs={'wf_run_id': "my_run_id"}
+        )
+
+        trigger_self = TriggerDagRunOperator.partial(
             task_id='trigger_self',
             trigger_dag_id="{{ dag.dag_id }}",
             # trigger_run_id="{{ ds }}",  # TODO Brenda Check if I can give a special name in this case
-            conf={
-                "data_start_date": "{{ ti.xcom_pull(task_ids='my_task_group.check_for_data_updates', key='start_date') }}",
-                "data_end_date": "{{ ti.xcom_pull(task_ids='my_task_group.check_for_data_updates', key='end_date') }}"
-            },
-            # conf={
-            #     "data_start_date": "2023-12-01",
-            #     "data_end_date": "2023-12-31"
-            # },
+        ).expand(
+            conf=XComArg(get_trigger_dates)
         )
-        get_dates >> check_for_data_updates >> trigger_self
+        run_SL_trigger_wf_step >> check_for_data_updates >> get_trigger_dates >> trigger_self
 
     start >> regular_wf >> my_task_group
 
