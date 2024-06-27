@@ -99,7 +99,6 @@ def workflow_dag():
         trigger_self = TriggerDagRunOperator.partial(
             task_id='trigger_self',
             trigger_dag_id="{{ dag.dag_id }}",
-            # trigger_run_id="{{ ds }}",  # TODO Brenda Check if I can give a special name in this case
         ).expand(
             conf=XComArg(get_trigger_dates)
         )
